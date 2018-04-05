@@ -1,0 +1,7 @@
+# Cookies
+
+Start Chrome with a test profile. Make sure to `--use-mock-keychain` if you
+want to be able to test the decrypted value of the cookie.
+
+Run `node cookies_server.js` and navigate to http://localhost:8080 in a test
+Chrome profile to have a test cookie set on localhost.

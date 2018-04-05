@@ -4,6 +4,7 @@
 
 #include "brave/utility/importer/chrome_importer.h"
 #include "brave/common/brave_paths.h"
+#include "brave/common/importer/brave_mock_importer_bridge.h"
 
 #include "base/files/file_path.h"
 #include "base/files/file_util.h"
@@ -15,6 +16,7 @@
 #include "chrome/common/importer/importer_url_row.h"
 #include "chrome/common/importer/mock_importer_bridge.h"
 #include "components/favicon_base/favicon_usage_data.h"
+#include "components/os_crypt/os_crypt_mocker.h"
 #include "testing/gtest/include/gtest/gtest.h"
 
 using base::ASCIIToUTF16;
@@ -122,4 +124,34 @@ TEST(ChromeImporterTest, ImportFavicons) {
             favicons[2].favicon_url.spec());
   EXPECT_EQ("https://static.nytimes.com/favicon.ico",
             favicons[3].favicon_url.spec());
+}
+
+TEST(ChromeImporterTest, ImportCookies) {
+  using ::testing::_;
+
+  OSCryptMocker::SetUp();
+
+  base::FilePath profile_dir = GetTestChromeProfileDir("default");
+  ASSERT_TRUE(base::DirectoryExists(profile_dir));
+  scoped_refptr<ChromeImporter> importer = new ChromeImporter;
+  importer::SourceProfile profile;
+  profile.source_path = profile_dir;
+  scoped_refptr<BraveMockImporterBridge> bridge = new BraveMockImporterBridge;
+  std::vector<net::CanonicalCookie> cookies;
+
+  EXPECT_CALL(*bridge, NotifyStarted());
+  EXPECT_CALL(*bridge, NotifyItemStarted(importer::COOKIES));
+  EXPECT_CALL(*bridge, SetCookies(_))
+      .WillOnce(::testing::SaveArg<0>(&cookies));
+  EXPECT_CALL(*bridge, NotifyItemEnded(importer::COOKIES));
+  EXPECT_CALL(*bridge, NotifyEnded());
+
+  importer->StartImport(profile, importer::COOKIES, bridge.get());
+
+  ASSERT_EQ(1u, cookies.size());
+  EXPECT_EQ("localhost", cookies[0].Domain());
+  EXPECT_EQ("test", cookies[0].Name());
+  EXPECT_EQ("test", cookies[0].Value());
+
+  OSCryptMocker::TearDown();
 }
