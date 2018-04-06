@@ -15,28 +15,29 @@
 #include "components/prefs/pref_service.h"
 #include "content/public/browser/browser_thread.h"
 #include "content/public/browser/render_frame_host.h"
+#include "content/public/browser/render_process_host.h"
 #include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_user_data.h"
 #include "extensions/browser/event_router.h"
 #include "extensions/browser/extension_api_frame_id_map.h"
 #include "ipc/ipc_message_macros.h"
 
-
 using extensions::Event;
 using extensions::EventRouter;
 using content::RenderFrameHost;
+using content::WebContents;
 
 DEFINE_WEB_CONTENTS_USER_DATA_KEY(
     brave_shields::BraveShieldsWebContentsObserver);
 
 namespace {
 
-content::WebContents* GetWebContents(
+WebContents* GetWebContents(
     int render_process_id,
     int render_frame_id,
     int frame_tree_node_id) {
-  content::WebContents* web_contents =
-      content::WebContents::FromFrameTreeNodeId(frame_tree_node_id);
+  WebContents* web_contents =
+      WebContents::FromFrameTreeNodeId(frame_tree_node_id);
   if (!web_contents) {
     RenderFrameHost* rfh =
         RenderFrameHost::FromID(render_process_id, render_frame_id);
@@ -44,7 +45,7 @@ content::WebContents* GetWebContents(
       return nullptr;
     }
     web_contents =
-        content::WebContents::FromRenderFrameHost(rfh);
+        WebContents::FromRenderFrameHost(rfh);
   }
   return web_contents;
 }
@@ -54,19 +55,75 @@ content::WebContents* GetWebContents(
 
 namespace brave_shields {
 
+base::Lock BraveShieldsWebContentsObserver::frame_data_map_lock_;
+std::map<BraveShieldsWebContentsObserver::RenderFrameIdKey, GURL>
+    BraveShieldsWebContentsObserver::render_frame_key_to_tab_url;
+
+BraveShieldsWebContentsObserver::RenderFrameIdKey::RenderFrameIdKey()
+    : render_process_id(content::ChildProcessHost::kInvalidUniqueID),
+      frame_routing_id(MSG_ROUTING_NONE) {}
+
+BraveShieldsWebContentsObserver::RenderFrameIdKey::RenderFrameIdKey(
+    int render_process_id,
+    int frame_routing_id)
+    : render_process_id(render_process_id),
+      frame_routing_id(frame_routing_id) {}
+
+
+bool BraveShieldsWebContentsObserver::RenderFrameIdKey::operator<(
+    const RenderFrameIdKey& other) const {
+  return std::tie(render_process_id, frame_routing_id) <
+         std::tie(other.render_process_id, other.frame_routing_id);
+}
+
+bool BraveShieldsWebContentsObserver::RenderFrameIdKey::operator==(
+    const RenderFrameIdKey& other) const {
+  return render_process_id == other.render_process_id &&
+         frame_routing_id == other.frame_routing_id;
+}
+
 BraveShieldsWebContentsObserver::~BraveShieldsWebContentsObserver() {
 }
 
 BraveShieldsWebContentsObserver::BraveShieldsWebContentsObserver(
-    content::WebContents* web_contents)
-    : content::WebContentsObserver(web_contents) {
+    WebContents* web_contents)
+    : WebContentsObserver(web_contents) {
 }
 
 void BraveShieldsWebContentsObserver::RenderFrameCreated(
-    RenderFrameHost* host) {
+    RenderFrameHost* rfh) {
   // Look up the extension API frame ID to force the mapping to be cached.
   // This is needed so that cached information is available for tabId.
-  extensions::ExtensionApiFrameIdMap::Get()->CacheFrameData(host);
+  extensions::ExtensionApiFrameIdMap::Get()->CacheFrameData(rfh);
+
+  WebContents* web_contents = WebContents::FromRenderFrameHost(rfh);
+  if (web_contents) {
+    base::AutoLock lock(frame_data_map_lock_);
+    const RenderFrameIdKey key(rfh->GetProcess()->GetID(), rfh->GetRoutingID());
+    render_frame_key_to_tab_url.insert(std::pair<RenderFrameIdKey, GURL>(key, web_contents->GetURL()));
+  }
+}
+
+void BraveShieldsWebContentsObserver::RenderFrameDeleted(
+    RenderFrameHost* rfh) {
+  base::AutoLock lock(frame_data_map_lock_);
+  const RenderFrameIdKey key(rfh->GetProcess()->GetID(), rfh->GetRoutingID());
+  std::map<RenderFrameIdKey, GURL>::iterator iter = render_frame_key_to_tab_url.find(key);
+  if (iter != render_frame_key_to_tab_url.end()) {
+    render_frame_key_to_tab_url.erase(key);
+  }
+}
+
+// static
+GURL BraveShieldsWebContentsObserver::GetTabURLFromRenderFrameInfo(
+    int render_process_id, int render_frame_id) {
+  base::AutoLock lock(frame_data_map_lock_);
+  const RenderFrameIdKey key(render_process_id, render_frame_id);
+  std::map<RenderFrameIdKey, GURL>::iterator iter = render_frame_key_to_tab_url.find(key);
+  if (iter != render_frame_key_to_tab_url.end()) {
+    return iter->second;
+  }
+  return GURL();
 }
 
 void BraveShieldsWebContentsObserver::DispatchBlockedEvent(
@@ -77,7 +134,7 @@ void BraveShieldsWebContentsObserver::DispatchBlockedEvent(
     int frame_tree_node_id) {
   DCHECK_CURRENTLY_ON(content::BrowserThread::UI);
 
-  content::WebContents* web_contents = GetWebContents(render_process_id,
+  WebContents* web_contents = GetWebContents(render_process_id,
     render_frame_id, frame_tree_node_id);
   DispatchBlockedEventForWebContents(block_type, subresource, web_contents);
 
@@ -102,7 +159,7 @@ void BraveShieldsWebContentsObserver::DispatchBlockedEvent(
 
 void BraveShieldsWebContentsObserver::DispatchBlockedEventForWebContents(
     const std::string& block_type, const std::string& subresource,
-    content::WebContents* web_contents) {
+    WebContents* web_contents) {
   if (!web_contents) {
     return;
   }
@@ -142,8 +199,8 @@ bool BraveShieldsWebContentsObserver::OnMessageReceived(
 void BraveShieldsWebContentsObserver::OnJavaScriptBlockedWithDetail(
     RenderFrameHost* render_frame_host,
     const base::string16& details) {
-  content::WebContents* web_contents =
-      content::WebContents::FromRenderFrameHost(render_frame_host);
+  WebContents* web_contents =
+      WebContents::FromRenderFrameHost(render_frame_host);
   if (!web_contents) {
     return;
   }
@@ -154,8 +211,8 @@ void BraveShieldsWebContentsObserver::OnJavaScriptBlockedWithDetail(
 void BraveShieldsWebContentsObserver::OnFingerprintingBlockedWithDetail(
     RenderFrameHost* render_frame_host,
     const base::string16& details) {
-  content::WebContents* web_contents =
-      content::WebContents::FromRenderFrameHost(render_frame_host);
+  WebContents* web_contents =
+      WebContents::FromRenderFrameHost(render_frame_host);
   if (!web_contents) {
     return;
   }

@@ -14,6 +14,8 @@ BraveHostContentSettingsMap::BraveHostContentSettingsMap(
     : HostContentSettingsMap(prefs, is_incognito_profile, is_guest_profile,
         store_last_modified) {
   InitializeFingerprintingContentSetting();
+  InitializeReferrerContentSetting();
+  InitializeCookieContentSetting();
 }
 
 BraveHostContentSettingsMap::~BraveHostContentSettingsMap() {
@@ -25,5 +27,29 @@ void BraveHostContentSettingsMap::InitializeFingerprintingContentSetting() {
       ContentSettingsPattern::FromString("https://firstParty/*"),
       CONTENT_SETTINGS_TYPE_PLUGINS,
       "fingerprinting",
+      CONTENT_SETTING_ALLOW);
+}
+
+void BraveHostContentSettingsMap::InitializeReferrerContentSetting() {
+  SetContentSettingCustomScope(
+      ContentSettingsPattern::Wildcard(),
+      ContentSettingsPattern::Wildcard(),
+      CONTENT_SETTINGS_TYPE_PLUGINS,
+      "referers",
+      CONTENT_SETTING_BLOCK);
+}
+
+void BraveHostContentSettingsMap::InitializeCookieContentSetting() {
+  SetContentSettingCustomScope(
+      ContentSettingsPattern::Wildcard(),
+      ContentSettingsPattern::FromString("https://notFirstParty/*"),
+      CONTENT_SETTINGS_TYPE_PLUGINS,
+      "cookies",
+      CONTENT_SETTING_BLOCK);
+  SetContentSettingCustomScope(
+      ContentSettingsPattern::Wildcard(),
+      ContentSettingsPattern::FromString("https://firstParty/*"),
+      CONTENT_SETTINGS_TYPE_PLUGINS,
+      "cookies",
       CONTENT_SETTING_ALLOW);
 }
