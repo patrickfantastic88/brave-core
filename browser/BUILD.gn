@@ -9,13 +9,19 @@ source_set("browser_process") {
     "brave_tab_helpers.cc",
     "brave_tab_helpers.h",
     "brave_profile_prefs.cc",
-    "brave_profile_prefs.h"
+    "brave_profile_prefs.h",
+    "brave_app_controller_mac.mm",
+    "brave_app_controller_mac.h",
   ]
 
   deps = [
     "//content/public/browser",
     "//brave/chromium_src:browser",
   ]
+
+  if (is_mac) {
+    deps += [ "//brave/vendor/sparkle" ]
+  }
 }
 
 source_set("browser") {
@@ -29,6 +35,10 @@ source_set("browser") {
     "//brave/browser/resources:brave_extension_grit",
     "//chrome/browser",
   ]
+
+  if (is_mac) {
+    public_deps += [ "//brave/vendor/sparkle" ]
+  }
 
   deps = [
     "//brave/components/brave_shields/browser:brave_shields",
