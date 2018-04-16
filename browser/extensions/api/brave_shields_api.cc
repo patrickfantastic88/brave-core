@@ -4,13 +4,25 @@
 
 #include "brave/browser/extensions/api/brave_shields_api.h"
 
+#include "brave/common/extensions/api/brave_shields.h"
+#include "brave/content/common/frame_messages.h"
+#include "content/public/browser/web_contents.h"
+
 namespace extensions {
 namespace api {
 
-BraveShieldsDummyFunction::~BraveShieldsDummyFunction() {
+BraveShieldsAllowScriptsOnceFunction::~BraveShieldsAllowScriptsOnceFunction() {
 }
 
-ExtensionFunction::ResponseAction BraveShieldsDummyFunction::Run() {
+ExtensionFunction::ResponseAction BraveShieldsAllowScriptsOnceFunction::Run() {
+  std::unique_ptr<brave_shields::AllowScriptsOnce::Params> params(
+      brave_shields::AllowScriptsOnce::Params::Create(*args_));
+  EXTENSION_FUNCTION_VALIDATE(params.get());
+
+  // Send an IPC msg to update the list in this tab's content settings observer
+  GetSenderWebContents()->SendToAllFrames(new BraveFrameMsg_AllowScriptsOnce(
+        MSG_ROUTING_NONE, params->origins));
+
   return RespondNow(NoArguments());
 }
 
