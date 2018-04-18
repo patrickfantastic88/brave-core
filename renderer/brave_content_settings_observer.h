@@ -44,6 +44,16 @@ class BraveContentSettingsObserver
       const blink::WebLocalFrame* frame,
       const GURL& secondary_url);
 
+  // RenderFrameObserver
+  bool OnMessageReceived(const IPC::Message& message) override;
+  void DidFinishLoad() override;
+
+  void OnAllowScriptsOnce(const std::vector<std::string>& origins);
+
+  bool IsScriptTemporilyAllowed(const GURL& script_url);
+
+  base::flat_set<std::string> temporarily_allowed_scripts_;
+
   DISALLOW_COPY_AND_ASSIGN(BraveContentSettingsObserver);
 };
 
